@@ -1,0 +1,383 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+# Install and load necessary packages
+pacman::p_load(ggplot2)
+
+
+library(magrittr)
+library(dplyr)
+library(forcats)
+#library(modelr)
+library(ggdist)
+library(tidybayes)
+library(ggplot2)
+library(cowplot)
+library(emmeans)
+library(bayesplot)
+library(RColorBrewer)
+library(arrow)
+library(tidyr)
+library(ggsci)
+library(purrr)
+library(boot)
+```
+
+```{r}
+gender <- arrow::read_parquet('./data/gender_multilevel.parquet')
+ethnicity <- arrow::read_parquet('./data/ethnicity_multilevel.parquet')
+adjusted <- arrow::read_parquet('./data/adjusted_multilevel.parquet')
+bootstrap <- arrow::read_parquet('./data/experiment_3_bootstrap.parquet')
+bootstrap_a <- arrow::read_parquet('./data/experiment_3_bootstrap_adj.parquet')
+```
+
+
+
+# Basic dists A
+
+```{r}
+comb <- left_join(gender %>% select("chain","draw", "beta_Gender_Male_sigma", "beta_Gender_Female_sigma"), 
+                     ethnicity %>% select("chain","draw", "beta_Ethnicity_White_sigma", "beta_Ethnicity_Asian_sigma","beta_Ethnicity_Hispanic_sigma", "beta_Ethnicity_Mixed_sigma"), by = c("chain", "draw")) %>% select(-c("chain","draw"))
+
+comb <- pivot_longer(comb, cols=everything(), names_to = "predictor", values_to = "Score")
+
+comb <- comb %>% 
+  mutate(predictor = as.factor(predictor)) %>% 
+  mutate(predictor = fct_recode(predictor,
+                                "Male" = "beta_Gender_Male_sigma",
+                                "Female" = "beta_Gender_Female_sigma",
+                                "White" = "beta_Ethnicity_White_sigma",
+                                "Asian" = "beta_Ethnicity_Asian_sigma",
+                                "Hispanic" = "beta_Ethnicity_Hispanic_sigma",
+                                "Mixed" = "beta_Ethnicity_Mixed_sigma") %>%
+           fct_relevel("Mixed", "Hispanic", "Asian", "White", "Male", "Female"))
+
+svg('fig_a.svg', width = 3, height = 4)
+
+ggplot(comb, aes(x = Score, y = as.factor(predictor), fill = as.factor(predictor))) +
+  stat_halfeye(fill = "#057526", alpha=0.5,
+                position = 'identity',
+                point_interval = median_hdi, .width = c(.95)) +
+  theme_minimal() +
+  labs(title = "A",
+       x=expression(phi[~beta[~sigma]]),
+       y = "Lambda") +
+  ylab(NULL) +
+  theme(legend.position = "none") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10), limits = c(0,0.65)) 
+
+dev.off()
+```
+```{r}
+adjusted_comb <- pivot_longer(adjusted %>% select("beta_Ethnicity_White_sigma", "beta_Ethnicity_Asian_sigma","beta_Ethnicity_Hispanic_sigma", "beta_Ethnicity_Mixed_sigma", "beta_Gender_Female_sigma", "beta_Gender_Male_sigma")
+                              ,cols=everything(), names_to = "predictor", values_to = "Score")
+
+adjusted_comb <- adjusted_comb %>% 
+  mutate(predictor = as.factor(predictor)) %>% 
+  mutate(predictor = fct_recode(predictor,
+                                "Male" = "beta_Gender_Male_sigma",
+                                "Female" = "beta_Gender_Female_sigma",
+                                "White" = "beta_Ethnicity_White_sigma",
+                                "Asian" = "beta_Ethnicity_Asian_sigma",
+                                "Hispanic" = "beta_Ethnicity_Hispanic_sigma",
+                                "Mixed" = "beta_Ethnicity_Mixed_sigma") %>%
+           fct_relevel("Mixed", "Hispanic", "Asian", "White", "Male", "Female"))
+
+svg('fig_a_adj.svg', width = 3, height = 4)
+
+ggplot(adjusted_comb, aes(x = Score, y = as.factor(predictor), fill = as.factor(predictor))) +
+ stat_halfeye(fill = "#057526", alpha=0.5,
+                position = 'identity',
+                point_interval = median_hdi, .width = c(.95)) +
+  theme_minimal() +
+  labs(title = "D",
+       x=expression(phi[~beta[~sigma]]),
+       y = "Lambda") +
+  ylab(NULL) +
+  theme(legend.position = "none") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10), limits = c(0,0.65)) 
+                                         
+ 
+ dev.off()
+```
+
+
+
+# Differences B
+
+```{r}
+comb_b <- left_join(gender %>% select("chain","draw", "Gender_Male minuss Gender_Female"), 
+                     ethnicity %>% select("chain","draw", "Ethnicity_White minuss Ethnicity_Asian", "Ethnicity_White minuss Ethnicity_Hispanic",
+ "Ethnicity_White minuss Ethnicity_Mixed", "Ethnicity_Asian minuss Ethnicity_Hispanic", "Ethnicity_Asian minuss Ethnicity_Mixed",   
+ "Ethnicity_Hispanic minuss Ethnicity_Mixed"), by = c("chain", "draw")) %>% select(-c("chain","draw"))
+
+comb_b <- pivot_longer(comb_b, cols=everything(), names_to = "predictor", values_to = "Score")
+
+comb_b <- comb_b %>% 
+  mutate(predictor = as.factor(predictor)) %>% 
+  mutate(predictor = fct_recode(predictor,
+                                "Male - Female" = "Gender_Male minuss Gender_Female",
+                                "White - Asian" = "Ethnicity_White minuss Ethnicity_Asian",
+                                "White - Hispanic" = "Ethnicity_White minuss Ethnicity_Hispanic",
+                                "White - Mixed" = "Ethnicity_White minuss Ethnicity_Mixed",
+                                "Asian - Hispanic" = "Ethnicity_Asian minuss Ethnicity_Hispanic",
+                                "Asian - Mixed" = "Ethnicity_Asian minuss Ethnicity_Mixed",
+                                "Hispanic - Mixed" = "Ethnicity_Hispanic minuss Ethnicity_Mixed") %>%
+           fct_relevel("Hispanic - Mixed", "Asian - Mixed", "Asian - Hispanic", "White - Mixed", "White - Hispanic", "White - Asian", "Male - Female"))
+
+svg('fig_b2.svg', width = 3.5, height = 4)
+
+ggplot(comb_b, aes(x = Score, y = as.factor(predictor), fill = as.factor(predictor))) +
+  stat_halfeye(fill = pal_lancet()(1)[1], alpha=0.5,
+                position = 'identity',
+                point_interval = median_hdi, .width = c(.95)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", size=0.9) +
+  theme_minimal() +
+  labs(title = "B",
+       x=expression(phi[~beta[X[n]~sigma]] - phi[~beta[X[m]~sigma]]),
+       y = "Lambda") +
+  ylab(NULL) +
+  theme(legend.position = "none") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 8), limits = c(-0.6,0.6))                                          
+ 
+dev.off()
+```
+
+
+# Bootstrap C
+
+```{r}
+comb_c <- pivot_longer(bootstrap, cols=everything(), names_to = "predictor", values_to = "Score")
+
+comb_c <- comb_c %>% 
+  mutate(predictor = as.character(predictor)) %>% 
+  mutate(predictor = fct_recode(predictor,
+                                "Male - Female" = "Male - Female",
+                                "White - Asian" = "White - Asian",
+                                "White - Hispanic" = "White - Hispanic",
+                                "White - Mixed" = "White - Mixed",
+                                "Asian - Hispanic" = "Asian - Hispanic",
+                                "Asian - Mixed" = "Asian - Mixed",
+                                "Hispanic - Mixed" = "Hispanic - Mixed") %>%
+           fct_relevel("Hispanic - Mixed", "Asian - Mixed", "Asian - Hispanic", "White - Mixed", "White - Hispanic", "White - Asian", "Male - Female"))
+
+svg('fig_c.svg', width = 2.5, height = 4)
+
+ggplot(comb_c, aes(x = Score, y = as.factor(predictor), fill = as.factor(predictor))) +
+  stat_halfeye(fill = "#C27D38", alpha=0.5,
+                position = 'identity',
+                point_interval = median_hdi, .width = c(.95)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", size=0.9) +
+  theme_minimal() +
+  labs(title = "C",
+       x = expression(paste("Median ", phi[~beta[X[n]~sigma]], " - Median ", phi[~beta[X[m]~sigma]])),
+       y = "Lambda") +
+  ylab(NULL) +
+  theme(legend.position = "none") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-0.1,0.02)) +
+  theme(axis.text.y = element_blank())
+ 
+dev.off()
+```
+
+```{r}
+comb_c_adj <- pivot_longer(bootstrap_a, cols=everything(), names_to = "predictor", values_to = "Score")
+
+comb_c_adj <- comb_c_adj %>% 
+  mutate(predictor = as.character(predictor)) %>% 
+  mutate(predictor = fct_recode(predictor,
+                                "Male - Female" = "Male - Female",
+                                "White - Asian" = "White - Asian",
+                                "White - Hispanic" = "White - Hispanic",
+                                "White - Mixed" = "White - Mixed",
+                                "Asian - Hispanic" = "Asian - Hispanic",
+                                "Asian - Mixed" = "Asian - Mixed",
+                                "Hispanic - Mixed" = "Hispanic - Mixed") %>%
+           fct_relevel("Hispanic - Mixed", "Asian - Mixed", "Asian - Hispanic", "White - Mixed", "White - Hispanic", "White - Asian", "Male - Female"))
+
+svg('fig_c_adj_2.svg', width = 3, height = 4)
+
+ggplot(comb_c_adj, aes(x = Score, y = as.factor(predictor), fill = as.factor(predictor))) +
+  stat_halfeye(fill = "#C27D38", alpha=0.5,
+                position = 'identity',
+                point_interval = median_hdi, .width = c(.95)) +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black", size=0.9) +
+  theme_minimal() +
+  labs(title = "E",
+       x = expression(paste("Median ", phi[~beta[X[n]~sigma]], " - Median ", phi[~beta[X[m]~sigma]])),
+       y = "Lambda") +
+  ylab(NULL) +
+  theme(legend.position = "none") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 4), limits = c(-0.1,0.02))
+ 
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+ggplot(df, aes(x=value, y=as.factor(lambda), fill = factor(stat(quantile)))) +
+  stat_density_ridges(
+    geom = "density_ridges_gradient",
+    calc_ecdf = TRUE,
+    quantiles = c(0.025, 0.5, 0.975),
+     scale=0.99,
+     alpha = 0.5,
+  ) +
+  scale_fill_manual(
+    name = "Probability", values = colors_me,
+    labels = c("(0, 0.025]", "(0.025, 0.975]", "(0.975, 1]", "asd")
+  ) + 
+  theme_minimal() +
+  labs(title = "Sigma of latent distributions",
+       x = "Variance",
+       y = "Lambda") +
+  #theme(legend.position = "none") + # Remove legend + 
+  xlim(0,10) + 
+  ylab(NULL) +
+  theme(legend.position = "none") 
+```
+
+
+
+```{r}
+colors_me = c("#057526","#057526","#057526","#057526")
+
+ggplot(df, aes(x = value, y = as.factor(lambda), fill = as.factor(lambda))) +
+  
+  geom_density_ridges(alpha = 0.5, color = "white", scale=0.99, 
+                      jittered_points = TRUE, position = "raincloud") +
+  
+  scale_fill_manual(values = colors_me,labels = c("(0, 0.025]", "(0.025, 0.975]", "(0.975, 1]")) +
+  theme_minimal() +
+  labs(title = "Sigma of latent distributions",
+       x = "Variance",
+       y = "Lambda") +
+  #theme(legend.position = "none") + # Remove legend + 
+  xlim(0,10) + 
+  ylab(NULL) +
+  theme(legend.position = "none") 
+```
+
+
+
+
+```{r}
+#Forest plots for the no-pooled case (Figure 5 in main article):
+p_alpha <-
+  bind_rows(
+    post_trial1,
+    post_trial2,
+    post_trial3,
+    post_trial4,
+    post_trial5,
+    post_trial6,
+    post_trial7,
+    post_trial8,
+    post_trial9,
+    post_trial10,
+    post_trial11,
+    post_trial12,
+    post_trial13,
+    post_trial14,
+    post_trial15,
+    post_trial16,
+    post_trial17,
+    post_trial18
+  )
+iter <- 8000
+
+p_alpha <- 
+  p_alpha %>% 
+  mutate(trial = rep(c("1","2","3","4", "5", "6", "7", "8", "9", "10",  "11", "12",  "13", "14",  "15", "16", "17", "18"), each = iter)) %>%   mutate(serial=fct_relevel(trial, "1","2","3","4", "5", "6", "7", "8", "9", "10",  "11", "12",  "13", "14",  "15", "16", "17", "18"))
+
+alpha_plot_unpooled <- p_alpha %>% 
+  ggplot(aes(x = b_alpha_Intercept, y = serial)) +
+  geom_halfeyeh(fill = "green4", alpha=0.5,
+                point_interval = mean_qi, .width = .95) +
+  labs(x=expression(alpha), y="trial")+
+  coord_cartesian(xlim =c(0, 2.3))
+
+logN0_plot_unpooled <- p_alpha %>% 
+  ggplot(aes(x = b_logN0_Intercept, y = serial)) +
+  geom_halfeyeh(fill = "green4", alpha=0.5,
+                point_interval = mean_qi, .width = .95) +
+  labs(x=expression(paste("log"[10],"N"[0])), y="trial")+
+  coord_cartesian(xlim =c(5.5, 8.5))
+
+beta_plot_unpooled <- p_alpha %>% 
+  ggplot(aes(x = b_beta_Intercept, y = serial)) +
+  geom_halfeyeh(fill = "green4", alpha=0.5,
+                point_interval = mean_qi, .width = .95) +
+  labs(x=expression(beta), y="trial")+
+  coord_cartesian(xlim =c(0, 0.13))
+
+logN0_plot_unpooled + alpha_plot_unpooled + beta_plot_unpooled
+
+# brms code for multilevel regression (partial pooling), case study 1
+nlform<-bf(logN ~ logN0-(1/2.303)*(time/beta)^alpha, 
+           logN0~1+(1|ID|trial), 
+           alpha~1+(1|ID|trial), 
+           beta~1+(1|ID|trial),
+           nl=TRUE)
+
+nlprior<-c(prior(normal(7,1), nlpar = "logN0"),
+           prior(normal(1,0.5), nlpar="alpha"),
+           prior(normal(0.03,0.01), nlpar="beta"),
+           prior(cauchy(0,10), class="sd", nlpar="logN0"),
+           prior(cauchy(0,10), class="sd", nlpar="alpha"),
+           prior(cauchy(0,10), class="sd", nlpar="beta"),
+           prior(cauchy(0,10), class="sigma"),
+           prior(lkj(1), class="cor")
+)
+
+mattick2_multi <- brm(formula=nlform, data=mattick65, family = gaussian(), prior = nlprior, control = list(adapt_delta = 0.999, max_treedepth=15), file=here("fits", "mattick2_multi"))
+
+mattick2_post <- posterior_samples(mattick2_multi)
+
+print(mattick2_multi, digits=4)
+
+# pair and correlation plots (Figure S5 in Supplement)
+mattick_cor2 <- dplyr::select(mattick2_post,b_logN0_Intercept:sigma)
+
+mattick_cor2 <- setNames(mattick_cor2, c(expression(paste("log"[10],"N")), expression(alpha), expression(beta), expression(sigma[logN[0]]),expression(sigma[alpha]),expression(sigma[beta]),expression(rho[logN[0]-alpha]),expression(rho[logN[0]-beta]),expression(rho[alpha-beta]), expression(sigma[e])))
+
+
+(mattick_corplot2 <-mattick_cor2  %>% 
+    ggpairs(diag=list(continuous="densityDiag"),
+            mapping=aes(fill="red"),
+            upper = list(continuous = wrap("cor", size = 2, stars=FALSE, title="corr. coef")), 
+            labeller=label_parsed)+ 
+    theme(strip.text.x = element_text(size = 10, color = "red"),
+          strip.text.y = element_text(size = 10, color = "red"))  +
+    theme(axis.text.x = element_text(angle=70, hjust=1, size = 6))+
+    theme(axis.text.y = element_text(angle=0, hjust=1, size = 6))
+) 
+```
+
+
+
